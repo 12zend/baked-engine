@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "baked_engine"
+version = "0.1.0"
+name = "Baked Engine"
+tagline = "Path-traced bake of a static scene into triangles plus one texture"
+maintainer = "12zend"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:MIT"]
+tags = ["Render", "Bake", "Import-Export"]
+
+[permissions]
+files = "Writes baked textures and meshes to disk"

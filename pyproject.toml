@@ -1,0 +1,9 @@
+[project]
+name = "baked-engine"
+version = "0.1.0"
+description = "Path-traced bake of a static scene into triangles plus one texture (Blender add-on)"
+requires-python = ">=3.11"
+dependencies = ["numpy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
