@@ -24,7 +24,8 @@ class CyclesBackend:
     name = "CYCLES"
 
     def __init__(self, context, bpy_materials, uv_name, run_on_main=None):
-        self.context = context
+        # ``context`` is accepted for API symmetry but never stored: an operator's context is only
+        # valid during the call, and the bake may run later from a modal handler.
         self.bpy_materials = bpy_materials
         self.uv_name = uv_name or "UVMap"
         self.run_on_main = run_on_main or (lambda fn: fn())
@@ -34,7 +35,7 @@ class CyclesBackend:
 
     # ------------------------------------------------------------------
     def _bake(self, scene, targets, settings, progress):
-        ctx = self.context
+        ctx = bpy.context
         bscene = ctx.scene
         CW = max(t.width for t in targets)
         CH = sum(t.height for t in targets)
@@ -59,7 +60,8 @@ class CyclesBackend:
             mesh = _build_mesh(P, atlas_uv, mat_uv, nrm, mids, self.uv_name)
             used = np.unique(mids)
             for i in range(int(mids.max()) + 1 if len(mids) else 0):
-                src = self.bpy_materials[i] if i < len(self.bpy_materials) else None
+                ref = self.bpy_materials[i] if i < len(self.bpy_materials) else None
+                src = bpy.data.materials.get(ref) if isinstance(ref, str) else ref
                 m = _bake_material(src, image) if i in used else None
                 mat_copies.append(m)
                 mesh.materials.append(m)

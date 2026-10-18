@@ -307,7 +307,7 @@ def extract_scene(context, settings_props=None, capture_world="AUTO", only_selec
         if key not in mat_index:
             mat_index[key] = len(materials)
             materials.append(convert_material(mat, cache, warnings))
-            bpy_materials.append(mat)
+            bpy_materials.append(mat.name if mat else None)
         return mat_index[key]
 
     P_list, N_list, UV_list, M_list, O_list = [], [], [], [], []
