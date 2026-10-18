@@ -29,23 +29,34 @@ def atrous_denoise(color, variance, mask, position, normal, texel_size, iteratio
     texel_size: (H, W) world size of a texel. Neighbours from unrelated charts are
     rejected by the position term, so the filter never mixes atlas islands.
     """
-    c = np.where(mask[..., None], color, 0).astype(np.float64)
-    var = np.where(mask, variance, 0).astype(np.float64)
-    m = mask.astype(np.float64)
-    ts = np.maximum(texel_size, 1e-12)
+    f = np.float32
+    h, w = mask.shape
+    c = np.where(mask[..., None], color, 0).astype(f)
+    var = np.where(mask, variance, 0).astype(f)
+    m = mask.astype(f)
+    inv_ts = (1.0 / np.maximum(texel_size, 1e-12)).astype(f)
+    pos = np.asarray(position, dtype=f)
+    nrm = np.asarray(normal, dtype=f)
+    e = np.log2(sigma_n) if sigma_n > 0 else 0.5
+    pow2 = int(e) if float(e).is_integer() else 0
     for it in range(iterations):
         step = 1 << it
-        lum = luminance(c)
-        # 3x3 gaussian of variance for a stabler luminance edge-stop
-        vblur = np.zeros_like(var)
-        wsum = np.zeros_like(var)
+        r = 2 * step
+        lum = luminance(c).astype(f)
+        # 3x3 binomial blur of the variance for a stabler luminance edge-stop
+        vp = np.pad(var * m, 1)
+        mp = np.pad(m, 1)
+        vs = np.zeros_like(var)
+        ws = np.zeros_like(var)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 k = (2 - abs(dx)) * (2 - abs(dy)) / 16.0
-                vblur += _shift(var, dx, dy) * k * _shift(m, dx, dy)
-                wsum += k * _shift(m, dx, dy)
-        vblur = vblur / np.maximum(wsum, 1e-12)
-        sl = sigma_l * np.sqrt(np.maximum(vblur, 0)) + 1e-6
+                vs += k * vp[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+                ws += k * mp[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+        inv_sl = (1.0 / (sigma_l * np.sqrt(np.maximum(vs / np.maximum(ws, 1e-12), 0)) + 1e-6)).astype(f)
+        P = lambda a: np.pad(a, [(r, r), (r, r)] + [(0, 0)] * (a.ndim - 2))  # noqa: E731
+        cP, vP, mP, lP, pP, nP = P(c), P(var), P(m), P(lum), P(pos), P(nrm)
+        pscale = (inv_ts / (step * 2.5 * sigma_p)).astype(f)
         acc = np.zeros_like(c)
         accv = np.zeros_like(var)
         accw = np.zeros_like(var)
@@ -53,25 +64,25 @@ def atrous_denoise(color, variance, mask, position, normal, texel_size, iteratio
             dy = (j - 2) * step
             for i, kx in enumerate(_B3):
                 dx = (i - 2) * step
-                k = kx * ky
-                cn = _shift(c, dx, dy)
-                vn = _shift(var, dx, dy)
-                mn = _shift(m, dx, dy)
-                pn = _shift(position, dx, dy)
-                nn = _shift(normal, dx, dy)
-                dist = np.linalg.norm(pn - position, axis=2) / (ts * step * 2.5 * sigma_p)
-                wp = np.exp(-dist * dist)
-                wn = np.maximum(np.einsum("ijk,ijk->ij", nn, normal), 0) ** sigma_n
-                wl = np.exp(-np.abs(luminance(cn) - lum) / sl)
-                w = k * wp * wn * wl * mn
-                acc += cn * w[..., None]
-                accv += vn * w * w
-                accw += w
-        good = accw > 1e-12
-        c = np.where(good[..., None], acc / np.maximum(accw, 1e-12)[..., None], c)
-        var = np.where(good, accv / np.maximum(accw * accw, 1e-24), var)
+                sl = (slice(r + dy, r + dy + h), slice(r + dx, r + dx + w))
+                d = pP[sl] - pos
+                dist2 = np.einsum("ijk,ijk->ij", d, d) * pscale * pscale
+                wn = np.clip(np.einsum("ijk,ijk->ij", nP[sl], nrm), 0, 1)
+                if pow2:
+                    for _ in range(pow2):
+                        wn *= wn
+                else:
+                    wn **= sigma_n
+                wgt = (kx * ky) * np.exp(-dist2 - np.abs(lP[sl] - lum) * inv_sl) * wn * mP[sl]
+                acc += cP[sl] * wgt[..., None]
+                accv += vP[sl] * wgt * wgt
+                accw += wgt
+        good = accw > 1e-6
+        safe = np.where(good, accw, 1.0)
+        c = np.where(good[..., None], acc / safe[..., None], c)
+        var = np.where(good, accv / (safe * safe), var)
         c = np.where(mask[..., None], c, 0)
-    return c
+    return c.astype(np.float64)
 
 
 def dilate(image, mask, iterations=None):
