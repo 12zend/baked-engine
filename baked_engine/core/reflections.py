@@ -101,10 +101,34 @@ def plan_reflections(scene: BakeScene, settings, mats, bvh) -> ReflectionPlan:
     areas = scene.areas()
     cent = scene.positions.mean(axis=1)
     remaining = np.nonzero(candidate & (areas > 0))[0]
+    patches = []
+
+    # 1) objects that are planar as a whole but not flat in detail (wavy water): one mirror plane,
+    #    the wave slopes widen the reflection blur instead of shattering it into many patches
+    for oi in np.unique(scene.object_ids[remaining]):
+        sel = remaining[scene.object_ids[remaining] == oi]
+        if len(sel) < 8:
+            continue
+        cfg = scene.objects[oi].reflector
+        w = areas[sel]
+        n0 = normalize((fn[sel] * w[:, None]).sum(axis=0)[None])[0]
+        ang = np.arccos(np.clip(fn[sel] @ n0, -1, 1))
+        rms = float(np.sqrt((w * ang * ang).sum() / max(w.sum(), 1e-30)))
+        if rms <= cfg.planar_tolerance or rms > np.radians(20) or (ang > np.radians(60)).any():
+            continue
+        d0 = float((cent[sel] @ n0 * w).sum() / max(w.sum(), 1e-30))
+        heights = np.abs(scene.positions[sel] @ n0 - d0)
+        pts = scene.positions[sel].reshape(-1, 3)
+        radius = float(np.linalg.norm(pts - pts.mean(axis=0), axis=1).max())
+        if heights.max() > 0.05 * max(radius, 1e-9):
+            continue
+        patches.append(dict(members=sel, n=n0, d=d0, cfg=cfg, dist_tol=float(heights.max()) + 2e-4 * extent, extra=1.5 * rms))
+        notes.append(f"object '{scene.objects[oi].name}': wavy surface reflected as one plane (wave slope {np.degrees(rms):.1f} deg adds blur)")
+        remaining = np.setdiff1d(remaining, sel)
+
+    # 2) greedy planar patches over the remaining glossy triangles
     remaining = remaining[np.argsort(-areas[remaining])]
-    reflectors = []
-    min_area = (0.02 * extent) ** 2
-    while len(remaining) and len(reflectors) < settings.max_reflectors:
+    while len(remaining) and len(patches) < 4 * settings.max_reflectors:
         seed = remaining[0]
         cfg = scene.objects[scene.object_ids[seed]].reflector
         cos_tol = np.cos(cfg.planar_tolerance)
@@ -124,20 +148,36 @@ def plan_reflections(scene: BakeScene, settings, mats, bvh) -> ReflectionPlan:
             members = sel
         remaining = np.setdiff1d(remaining, members, assume_unique=False)
         remaining = remaining[np.argsort(-areas[remaining])]
+        patches.append(dict(members=members, n=n0, d=d0, cfg=cfg, dist_tol=dist_tol, extra=0.0))
+
+    # 3) accept patches as geometry reflectors
+    convex = _convex_glossy_boundary(scene, candidate, patches, fn)
+    reflectors = []
+    min_area = (0.02 * extent) ** 2
+    for pi, pt in enumerate(patches):
+        members = pt["members"]
         area = float(areas[members].sum())
         forced = (tri_mode[members] == "GEOMETRY").mean() > 0.5
-        if area < min_area and not forced:
+        if len(reflectors) >= settings.max_reflectors:
+            texture_spec[members] = True
+            notes.append(f"{len(members)} glossy triangles beyond max_reflectors use texture reflections")
+            continue
+        if not forced and area < min_area:
             texture_spec[members] = True
             continue
-        r = _make_reflector(len(reflectors), scene, members, n0, d0, cfg, mats, extent, dist_tol)
+        if not forced and convex[pi] > 0.1:
+            # a planar facet of a curved / faceted glossy object: neighbouring mirror worlds would
+            # show through each other, so bake its reflection into the texture instead
+            texture_spec[members] = True
+            continue
+        r = _make_reflector(len(reflectors), scene, members, pt["n"], pt["d"], pt["cfg"], mats, extent, pt["dist_tol"], pt["extra"])
         _finish_volume(r, scene, bvh, settings, extent, camera, notes, forced)
-        if r is None or r.volume is None:
+        if r.volume is None:
             texture_spec[members] = True
             continue
         reflectors.append(r)
     if len(remaining):
         texture_spec[remaining] = True
-        notes.append(f"{len(remaining)} glossy triangles beyond max_reflectors use texture reflections")
     if settings.specular_bake:
         texture_spec |= (tri_mode != "OFF") & ((metal >= 0.5) | (tri_mode == "TEXTURE"))
         in_geo = np.zeros(T, dtype=bool)
@@ -151,7 +191,59 @@ def plan_reflections(scene: BakeScene, settings, mats, bvh) -> ReflectionPlan:
     return ReflectionPlan(reflectors, texture_spec, camera, notes)
 
 
-def _make_reflector(index, scene, members, n, d, cfg, mats, extent, dist_tol):
+def _convex_glossy_boundary(scene, candidate, patches, fn):
+    """Per patch: fraction of its boundary that meets another glossy patch at a convex edge."""
+    from .atlas import weld_vertices
+
+    out = np.zeros(len(patches))
+    if not patches:
+        return out
+    T = scene.triangle_count
+    patch_of = np.full(T, -1, dtype=np.int64)
+    for i, p in enumerate(patches):
+        patch_of[p["members"]] = i
+    cand = np.nonzero(candidate)[0]
+    if len(cand) == 0:
+        return out
+    ext = scene.extent()
+    vid = weld_vertices(scene.positions[cand].reshape(-1, 3), np.zeros(len(cand) * 3, np.int64), max(ext * 1e-6, 1e-9)).reshape(-1, 3)
+    e = np.stack([vid[:, [0, 1]], vid[:, [1, 2]], vid[:, [2, 0]]], axis=1).reshape(-1, 2)
+    e.sort(axis=1)
+    tri = np.repeat(cand, 3)
+    p0 = scene.positions[cand][:, [0, 1, 2]].reshape(-1, 3)
+    p1 = scene.positions[cand][:, [1, 2, 0]].reshape(-1, 3)
+    length = np.linalg.norm(p1 - p0, axis=1)
+    order = np.lexsort((e[:, 1], e[:, 0]))
+    es = e[order]
+    same = np.zeros(len(es), dtype=bool)
+    same[1:] = (es[1:] == es[:-1]).all(axis=1)
+    a = tri[order][:-1][same[1:]]
+    b = tri[order][1:][same[1:]]
+    ln = length[order][1:][same[1:]]
+    pa, pb = patch_of[a], patch_of[b]
+    differ = pa != pb
+    a, b, pa, pb, ln = a[differ], b[differ], pa[differ], pb[differ], ln[differ]
+    cent = scene.positions.mean(axis=1)
+    boundary = np.zeros(len(patches))
+    bad = np.zeros(len(patches))
+    for x, y, px in ((a, b, pa), (b, a, pb)):
+        ok = px >= 0
+        n = fn[x[ok]]
+        # the neighbour bends away behind this facet's plane -> convex edge
+        behind = np.einsum("ij,ij->i", cent[y[ok]] - cent[x[ok]], n) < -1e-9
+        np.add.at(boundary, px[ok], ln[ok])
+        np.add.at(bad, px[ok], ln[ok] * behind)
+    # true perimeter of every patch: edge occurrences not shared with another triangle of the patch
+    pe = patch_of[tri]
+    key = np.concatenate([e, pe[:, None]], axis=1)
+    _, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    single = (cnt[inv.reshape(-1)] == 1) & (pe >= 0)
+    perim = np.bincount(pe[single], weights=length[single], minlength=len(patches))
+    out = bad / np.maximum(np.maximum(perim, boundary), 1e-12)
+    return out
+
+
+def _make_reflector(index, scene, members, n, d, cfg, mats, extent, dist_tol, extra_sigma=0.0):
     areas = scene.areas()[members]
     w = areas / max(areas.sum(), 1e-30)
     plane = Plane(tuple(n), d)
@@ -170,7 +262,7 @@ def _make_reflector(index, scene, members, n, d, cfg, mats, extent, dist_tol):
     f0 = (f0 * w[:, None]).sum(axis=0)
     rough = float((mats.rough[mat] * w).sum())
     alpha = max(rough * rough, 1e-3)
-    sigma = 0.7 * alpha + max(cfg.blur, 0.0)
+    sigma = 0.7 * alpha + max(cfg.blur, 0.0) + extra_sigma
     return Reflector(index, plane, members, centroid, u, v, hull, radius, float(areas.sum()), cfg, f0, rough, sigma, dist_tol)
 
 

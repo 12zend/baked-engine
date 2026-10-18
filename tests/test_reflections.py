@@ -119,3 +119,49 @@ def test_texture_mode_for_small_glossy_objects():
     st, plan, geo = _plan(sc)
     house = np.nonzero(sc.object_ids == 2)[0]
     assert plan.texture_spec[house].all()
+
+
+def _scene_with(extra_P, extra_mat, extra_obj_cfg):
+    base = demo.mountain_lake(resolution=12)
+    n0 = base.triangle_count
+    P = np.concatenate([base.positions, extra_P])
+    N = np.concatenate([base.normals, np.repeat(np.cross(extra_P[:, 1] - extra_P[:, 0], extra_P[:, 2] - extra_P[:, 0])[:, None], 3, axis=1)])
+    mats = base.materials + [extra_mat]
+    mid = np.concatenate([base.material_ids, np.full(len(extra_P), len(mats) - 1)])
+    objs = base.objects + [SceneObject("extra", extra_obj_cfg)]
+    oid = np.concatenate([base.object_ids, np.full(len(extra_P), len(objs) - 1)])
+    sc = BakeScene(P, N, None, mid, oid, mats, [], base.lights, base.environment, base.camera, objs)
+    return sc, n0
+
+
+def test_glossy_cube_facets_fall_back_to_texture_reflection():
+    cube = demo._box((40, -30, 8), (16, 16, 16))[0]  # faces well above the minimum reflector area
+    sc, n0 = _scene_with(cube, Material("chrome", (0.9, 0.9, 0.9), roughness=0.05, metallic=1.0), ReflectorConfig())
+    st, plan, geo = _plan(sc)
+    cube_tris = np.arange(n0, sc.triangle_count)
+    for r in plan.reflectors:
+        assert not np.isin(r.tris, cube_tris).any()
+    assert plan.texture_spec[cube_tris].all()
+    # the sea is still a geometry reflector
+    assert any(np.allclose(r.plane.normal, [0, 0, 1]) for r in plan.reflectors)
+
+
+def test_wavy_water_is_one_blurred_mirror():
+    sc = demo.mountain_lake(resolution=12)
+    n = 40
+    xs = np.linspace(-60, 60, n + 1)
+    x, y = np.meshgrid(xs, xs + 20)
+    z = 0.4 * np.sin(x * 0.5) * np.cos(y * 0.4)
+    V = np.stack([x, y, z], -1)
+    a, b, c, d = V[:-1, :-1].reshape(-1, 3), V[:-1, 1:].reshape(-1, 3), V[1:, 1:].reshape(-1, 3), V[1:, :-1].reshape(-1, 3)
+    waves = np.concatenate([np.stack([a, b, c], 1), np.stack([a, c, d], 1)])
+    keep = sc.object_ids != 1  # replace the flat sea
+    P = np.concatenate([sc.positions[keep], waves])
+    mid = np.concatenate([sc.material_ids[keep], np.ones(len(waves), int)])
+    oid = np.concatenate([sc.object_ids[keep], np.ones(len(waves), int)])
+    sc2 = BakeScene(P, None, None, mid, oid, sc.materials, [], sc.lights, sc.environment, sc.camera, [sc.objects[0], SceneObject("sea", ReflectorConfig()), sc.objects[2]])
+    st, plan, geo = _plan(sc2)
+    sea = [r for r in plan.reflectors if np.isin(r.tris, np.nonzero(oid == 1)[0]).all()]
+    assert len(sea) == 1 and len(sea[0].tris) == len(waves)
+    assert sea[0].sigma > 0.05  # waves blur the reflection
+    assert any("wavy" in n for n in plan.notes)
