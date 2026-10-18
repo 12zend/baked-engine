@@ -51,6 +51,7 @@ class Reflector:
     sigma: float
     dist_tol: float
     volume: list = field(default_factory=list)  # behind-mirror region: inside = front of every plane
+    removal_volume: list = field(default_factory=list)  # cleared region behind the mirror
     remove: bool = False
     mirror_depth: float = 0.0
     viewer: np.ndarray = None
@@ -303,10 +304,20 @@ def _finish_volume(r: Reflector, scene, bvh, settings, extent, camera, notes, fo
         h = max(0.1 * r.radius, 1e-3 * extent)
         r.viewer = r.centroid + n * h
     planes = [r.plane.flipped(), Plane(tuple(n), r.plane.d - depth)]
+    wide = list(planes)
     flare = cfg.flare if cfg.flare >= 0 else np.radians(80.0 if r.remove else 50.0)
     flare = float(np.clip(flare, 0.0, np.radians(89.9)))
     margin = np.radians(8.0)
     hull = r.hull
+
+    def side_plane(t3, m, e0, tilt):
+        behind = -np.cos(tilt) * n + np.sin(tilt) * m
+        N = np.cross(t3, behind)
+        N /= np.linalg.norm(N)
+        if N @ (r.centroid - n * 1e-3 * extent - e0) < 0:
+            N = -N
+        return Plane(tuple(N), float(N @ e0))
+
     if len(hull) >= 3:
         for i in range(len(hull)):
             a2 = hull[i]
@@ -320,6 +331,8 @@ def _finish_volume(r: Reflector, scene, bvh, settings, extent, camera, notes, fo
             t3 = (e[0] * r.u + e[1] * r.v) / ln
             e0 = r.centroid + a2[0] * r.u + a2[1] * r.v
             e1 = r.centroid + b2[0] * r.u + b2[1] * r.v
+            if flare < np.radians(89.5):
+                wide.append(side_plane(t3, m, e0, flare))
             tilt = flare
             if has_cam and not _edge_framed(r, bvh, e0, e1, m, camera, extent):
                 # nothing hides this side of the mirror: only keep what the reference view can see
@@ -329,15 +342,12 @@ def _finish_volume(r: Reflector, scene, bvh, settings, extent, camera, notes, fo
                 bv -= (bv @ t3) * t3
                 view_tilt = np.arctan2(bv @ m, -(bv @ n)) + margin
                 tilt = min(tilt, max(view_tilt, 0.0))
-            if tilt >= np.radians(89.5):
-                continue
-            behind = -np.cos(tilt) * n + np.sin(tilt) * m
-            N = np.cross(t3, behind)
-            N /= np.linalg.norm(N)
-            if N @ (r.centroid - n * 1e-3 * extent - e0) < 0:
-                N = -N
-            planes.append(Plane(tuple(N), float(N @ e0)))
+            if tilt < np.radians(89.5):
+                planes.append(side_plane(t3, m, e0, tilt))
     r.volume = planes
+    # what gets cleared behind the mirror: anything there is only visible through the window,
+    # so the generous flare volume is used regardless of the reference view
+    r.removal_volume = wide
     env = scene.environment
     sun = any(l.kind == "SUN" for l in scene.lights)
     r.dome = bool(luminance(env.average()) > 0 or sun or scene.lights)
@@ -440,7 +450,7 @@ def build_output_geometry(scene: BakeScene, plan: ReflectionPlan, settings) -> O
     main = main.subset(rt < 0)
     for r in plan.reflectors:
         if r.remove:
-            inside, outside = clip_to_halfspaces(main, r.volume)
+            inside, outside = clip_to_halfspaces(main, r.removal_volume)
             aux_parts.append(inside)
             main = outside
     aux = TriSet.concat(aux_parts)
