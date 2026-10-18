@@ -7,3 +7,4 @@ dependencies = ["numpy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--ignore=tests/blender"

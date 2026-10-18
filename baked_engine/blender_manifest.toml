@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "baked_engine"
 version = "0.1.0"
 name = "Baked Engine"
-tagline = "Path-traced bake of a static scene into triangles plus one texture"
+tagline = "Path-traced bake into triangles and one texture"
 maintainer = "12zend"
 type = "add-on"
 
@@ -14,3 +14,6 @@ tags = ["Render", "Bake", "Import-Export"]
 
 [permissions]
 files = "Writes baked textures and meshes to disk"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "/.git/", "*.pyc"]

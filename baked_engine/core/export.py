@@ -174,10 +174,15 @@ def read_bkd(path):
     return v, idx, img
 
 
-def export_result(result, directory, name="baked", formats=("glb", "obj", "bkd"), view="AGX", exposure=0.0, up="Y", hdr=True):
-    """Write every requested format. Returns a dict of written paths."""
+def export_result(result, directory, name="baked", formats=("glb", "obj", "bkd"), view="AGX", exposure=0.0, up="Y", hdr=True, rgba=None):
+    """Write every requested format. Returns a dict of written paths.
+
+    ``rgba`` (H, W, 4 uint8, row 0 = bottom) overrides the built-in colour encoding, e.g. with
+    Blender's own view transform.
+    """
     os.makedirs(directory, exist_ok=True)
-    rgba = result.encoded(view, exposure)
+    if rgba is None:
+        rgba = result.encoded(view, exposure)
     paths = {}
     png_path = os.path.join(directory, f"{name}.png")
     png = write_png(png_path, rgba)
