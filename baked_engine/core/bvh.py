@@ -278,19 +278,19 @@ class BVH:
                     py = dz * bx - dx * bz
                     pz = dx * by - dy * bx
                     det = ax * px + ay * py + az * pz
-                    with np.errstate(divide="ignore", invalid="ignore"):
+                    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
                         idet = np.float32(1.0) / det
-                    tx = ox - v0[0][slot]
-                    ty = oy - v0[1][slot]
-                    tz = oz - v0[2][slot]
-                    u = (tx * px + ty * py + tz * pz) * idet
-                    qx = ty * az - tz * ay
-                    qy = tz * ax - tx * az
-                    qz = tx * ay - ty * ax
-                    v = (dx * qx + dy * qy + dz * qz) * idet
-                    t = (bx * qx + by * qy + bz * qz) * idet
-                    eps = np.float32(-1e-6)
-                    good = (np.abs(det) > 1e-30) & (u >= eps) & (v >= eps) & (u + v <= 1 - eps) & (t > tlo[ry]) & (t < tbest[ry])
+                        tx = ox - v0[0][slot]
+                        ty = oy - v0[1][slot]
+                        tz = oz - v0[2][slot]
+                        u = (tx * px + ty * py + tz * pz) * idet
+                        qx = ty * az - tz * ay
+                        qy = tz * ax - tx * az
+                        qz = tx * ay - ty * ax
+                        v = (dx * qx + dy * qy + dz * qz) * idet
+                        t = (bx * qx + by * qy + bz * qz) * idet
+                        eps = np.float32(-1e-6)
+                        good = (np.abs(det) > 1e-30) & (u >= eps) & (v >= eps) & (u + v <= 1 - eps) & (t > tlo[ry]) & (t < tbest[ry])
                     if self.alpha_slots is not None and good.any():
                         chk = good & self.alpha_slots[slot]
                         if chk.any():

@@ -219,7 +219,7 @@ class ReflectorConfig:
     blur: float = 0.01  # extra blur cone half-angle in radians on top of roughness
     fresnel: bool = True
     planar_tolerance: float = 0.035  # radians of normal deviation allowed in a patch
-    flare: float = np.radians(80.0)  # side-plane tilt of the reflection volume
+    flare: float = -1.0  # side-plane tilt (radians) of the reflection volume; < 0: 80 deg for water, 50 deg otherwise
     mirror_depth: float = 0.0  # 0 = auto (scene size)
     remove_below: str = "AUTO"  # 'AUTO', 'ON', 'OFF': drop geometry behind the mirror
 
