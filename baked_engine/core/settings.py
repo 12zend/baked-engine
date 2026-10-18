@@ -29,11 +29,12 @@ class BakeSettings:
     aux_density: float = 0.25  # density of hidden/removed surfaces (used only for lookups)
     aux_size: int = 0  # auxiliary atlas size; 0 = half the main width
     dome_size: int = 0  # pixel size of each mirrored-sky dome chart; 0 = width / 8
-    dome_radius: float = 0.0  # 0 = 4 x scene extent
+    dome_radius: float = 0.0  # 0 = just enclose the mirrored scene (keeps it inside far clip planes)
     dome_segments: int = 32
     max_reflectors: int = 16
     reference_view: str = "AUTO"  # 'AUTO' (camera when usable), 'CAMERA', 'SYNTHETIC'
     specular_bake: bool = True  # bake view-dependent gloss for metals / texture-mode reflectors
+    rough_specular: bool = False  # also bake the view-averaged specular layer of rough dielectrics
     triangle_budget: int = 4_000_000
     # output
     view_transform: str = "AGX"  # 'STANDARD', 'ACES', 'AGX', 'NONE' (linear)

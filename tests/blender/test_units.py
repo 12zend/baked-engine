@@ -58,6 +58,13 @@ def setup(kind):
         bpy.context.scene.collection.objects.link(ob)
     elif kind == "world":
         common.world_color((0.5, 0.6, 0.7), 1.5)
+    elif kind == "sky":
+        w = bpy.context.scene.world
+        nt = w.node_tree
+        bg = next(n for n in nt.nodes if n.type == "BACKGROUND")
+        sky = nt.nodes.new("ShaderNodeTexSky")
+        nt.links.new(sky.outputs["Color"], bg.inputs["Color"])
+        bg.inputs["Strength"].default_value = 0.3
     elif kind == "emissive":
         em = bpy.data.materials.new("Lamp")
         em.use_nodes = True
@@ -87,7 +94,7 @@ def bake_both(samples=256):
 
 def main():
     common.register_addon()
-    for kind in ("sun", "point", "spot", "area", "world", "emissive"):
+    for kind in ("sun", "point", "spot", "area", "world", "emissive", "sky"):
         setup(kind)
         a, b = bake_both()
         ia = a.image[..., :3]
@@ -95,7 +102,7 @@ def main():
         floor = ia.mean(axis=2) > 1e-4
         ratio = ib[floor].mean() / max(ia[floor].mean(), 1e-9)
         va, vb = ia[floor].mean(axis=1), ib[floor].mean(axis=1)
-        flat = va.std() < 1e-3 * max(va.mean(), 1e-9)
+        flat = kind in ("sun", "world", "sky")  # an unoccluded plane: uniform up to noise
         corr = 1.0 if flat else np.corrcoef(va, vb)[0, 1]
         print(f"{kind}: builtin={ia[floor].mean():.4f} cycles={ib[floor].mean():.4f} ratio={ratio:.3f} corr={corr:.3f}")
         check(abs(ratio - 1) < 0.08, f"{kind} intensity matches Cycles (ratio {ratio:.3f})")

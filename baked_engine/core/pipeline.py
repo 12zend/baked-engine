@@ -276,6 +276,15 @@ def bake(scene: BakeScene, settings: BakeSettings | None = None, progress=None, 
             prog.stage("compose")
         light_d = L_img[tx.y, tx.x]
         rad = kd * light_d + em
+        # Rough dielectrics: their specular layer is close to view independent, so bake its
+        # cosine-weighted average (energy conserving with the diffuse layer, as Principled does).
+        mat = mats.tri_mat[src]
+        f0 = 0.08 * mats.spec[mat]
+        avg = f0 + (1 - f0) / 21.0 * np.minimum(f0 / 0.04, 1.0)
+        t_r = np.clip((mats.rough[mat] - 0.1) / 0.3, 0, 1)
+        w = t_r * t_r * (3 - 2 * t_r) * (1 - mats.metal[mat]) * ~plan.texture_spec[src] * bool(settings.rough_specular)
+        a = (avg * w)[:, None]
+        rad = rad - kd * light_d * a + light_d * a
         lit_info.append(dict(src=src, sb=sb, P=P, Ns=Ns, rad=rad, diffuse=rad.copy(), alpha=alpha, ok=ok))
         img = _scatter(tx, rad, t.height, t.width)
         diffuse_imgs.append(dilate(img, mask))

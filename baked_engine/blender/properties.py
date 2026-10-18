@@ -31,6 +31,9 @@ class BakedEngineSceneProps(PropertyGroup):
     max_bounces: IntProperty(name="Bounces", default=6, min=0, max=64)
     clamp_indirect: FloatProperty(name="Clamp Indirect", default=10.0, min=0.0, description="Firefly clamp, 0 disables")
     denoise: BoolProperty(name="Denoise", default=True)
+    rough_specular: BoolProperty(
+        name="Rough Specular", default=False, description="Bake the view-averaged specular layer of rough non-metals"
+    )
     only_selected: BoolProperty(
         name="Selected Only", default=False, description="Output only selected objects; everything still contributes light"
     )
@@ -79,6 +82,7 @@ class BakedEngineSceneProps(PropertyGroup):
             max_bounces=self.max_bounces,
             clamp_indirect=self.clamp_indirect,
             denoise=self.denoise,
+            rough_specular=self.rough_specular,
             reflections=self.reflections,
             reflection_depth=self.reflection_depth,
             reflection_samples=self.reflection_samples,

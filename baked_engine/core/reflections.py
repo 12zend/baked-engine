@@ -357,7 +357,7 @@ def build_output_geometry(scene: BakeScene, plan: ReflectionPlan, settings) -> O
     chains = ChainTable()
     domes = []
     extent = scene.extent()
-    dome_radius = settings.dome_radius if settings.dome_radius > 0 else 4.0 * extent
+    all_pts = scene.positions.reshape(-1, 3)
     reflectors = plan.reflectors
     reflector_pieces = {r.index: aux.subset(aux.tags["refl"] == r.index) for r in reflectors}
     memo = {}
@@ -396,7 +396,12 @@ def build_output_geometry(scene: BakeScene, plan: ReflectionPlan, settings) -> O
         m.tags["dome"] = dome_ids
         parts_out = [m]
         if r.dome:
-            dt = _dome_tris(r, dome_radius, settings.dome_segments)
+            # mirroring keeps distances to points on the plane, so this radius encloses every
+            # mirrored triangle while staying as close as possible (far clip planes!)
+            radius = settings.dome_radius
+            if radius <= 0:
+                radius = 1.05 * float(np.linalg.norm(all_pts - r.centroid, axis=1).max()) + 1e-3 * extent
+            dt = _dome_tris(r, radius, settings.dome_segments)
             if not r.remove:
                 # a mirror with real geometry behind it: keep the dome inside the reflection volume.
                 # (water-like reflectors keep the full dome so grazing views still see the sky)
@@ -601,7 +606,9 @@ class ReflectionShader:
                 Qc = r.plane.reflect_points(Qc)
                 cur_o = X
             sigma = np.sqrt(sig2)
-            Xk = cur_o
+            # leave the innermost reflector's surface so gather rays cannot hit it again
+            last = refl[chain[-1]]
+            Xk = cur_o + last.plane.normal * (last.dist_tol * 2 + 4 * self.eps)
             kind = kinds[sel]
             content = np.zeros((len(sel), 3))
             copy = kind == KIND_COPY

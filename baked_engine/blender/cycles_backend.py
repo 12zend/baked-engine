@@ -76,6 +76,7 @@ class CyclesBackend:
                     type="DIFFUSE",
                     pass_filter={"DIRECT", "INDIRECT"},
                     margin=2,
+                    margin_type="EXTEND",
                     use_clear=True,
                     uv_layer=ATLAS_UV,
                     target="IMAGE_TEXTURES",
@@ -83,7 +84,7 @@ class CyclesBackend:
                 )
                 buf = np.empty(CW * CH * 4, dtype=np.float32)
                 image.pixels.foreach_get(buf)
-                halves.append(buf.reshape(CH, CW, 4)[..., :3].astype(np.float64))
+                halves.append(buf.reshape(CH, CW, 4).astype(np.float64))
                 progress((k + 1) / 2)
             a, b = halves
             out = []
@@ -91,9 +92,11 @@ class CyclesBackend:
                 tx = t.texels
                 va = a[tx.y + yo, tx.x]
                 vb = b[tx.y + yo, tx.x]
-                mean = 0.5 * (va + vb)
-                d = (va - vb).mean(axis=1)
-                out.append((mean, 0.25 * d * d, np.ones(len(tx))))
+                mean = 0.5 * (va[:, :3] + vb[:, :3])
+                d = (va[:, :3] - vb[:, :3]).mean(axis=1)
+                # Cycles writes alpha 1 where it baked (incl. its margin); the rest is filled later
+                covered = (va[:, 3] > 0.5).astype(np.float64)
+                out.append((mean, 0.25 * d * d, covered))
             return out
         finally:
             state.restore()

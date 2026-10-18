@@ -289,8 +289,11 @@ def _world(scene, cache, warnings, capture):
     return capture(scene) if capture else env
 
 
-def extract_scene(context, settings_props=None, capture_world=None, only_selected=False):
-    """Returns (BakeScene, info dict)."""
+def extract_scene(context, settings_props=None, capture_world="AUTO", only_selected=False):
+    """Returns (BakeScene, info dict). Worlds other than a colour / HDRI are captured with Cycles
+    unless ``capture_world`` is None."""
+    if capture_world == "AUTO":
+        from .world_capture import capture_world
     scene = context.scene
     depsgraph = context.evaluated_depsgraph_get()
     cache = _TextureCache()

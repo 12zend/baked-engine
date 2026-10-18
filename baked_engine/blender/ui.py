@@ -43,6 +43,7 @@ class BAKED_ENGINE_PT_lighting(Panel):
         lay.prop(p, "max_bounces")
         lay.prop(p, "clamp_indirect")
         lay.prop(p, "denoise")
+        lay.prop(p, "rough_specular")
 
 
 class BAKED_ENGINE_PT_reflections(Panel):
