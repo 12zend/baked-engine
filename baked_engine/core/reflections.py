@@ -736,7 +736,6 @@ class ReflectionShader:
 
     def texture_specular(self, P, Ns, f0, rough, viewer):
         """View-dependent gloss for the reference view, baked into ordinary texels."""
-        n = len(P)
         if viewer is not None:
             wo = normalize(viewer[None, :] - P)
             ok = np.einsum("ij,ij->i", wo, Ns) > 0.05

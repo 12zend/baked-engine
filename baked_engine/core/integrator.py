@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 
 from .bvh import BVH
-from .geometry import normalize
 from .lights import EmissiveTriangles, light_importance, sample_light
 from .sampling import Sampler
 from .scene import BakeScene, luminance

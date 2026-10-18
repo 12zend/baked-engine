@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 

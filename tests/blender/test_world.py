@@ -3,7 +3,6 @@
 Run:  blender -b --factory-startup --python tests/blender/test_world.py
 """
 
-import math
 import os
 import sys
 import traceback
