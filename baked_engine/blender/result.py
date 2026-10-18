@@ -118,10 +118,31 @@ def _scene_encoded_rgba(context, img, directory, name):
     return np.round(px.reshape(h, w, 4) * 255).astype(np.uint8)
 
 
+def resolve_output_dir(path):
+    """Absolute, writable output folder.
+
+    ``//`` paths are relative to the .blend file; while the file is unsaved (and for any path that
+    stays relative) they go under ``~/BakedEngine`` instead of Blender's working directory, which
+    is ``/`` (read-only) when Blender is started from Finder.
+    """
+    raw = path or "//baked/"
+    home_base = os.path.join(os.path.expanduser("~"), "BakedEngine")
+    if raw.startswith("//") and not bpy.data.filepath:
+        out = os.path.join(home_base, raw[2:])
+    else:
+        out = bpy.path.abspath(raw)
+        if not os.path.isabs(out):
+            out = os.path.join(home_base, out)
+    return os.path.normpath(out)
+
+
 def export_files(context, res, props, img=None):
-    directory = bpy.path.abspath(props.output_dir)
+    directory = resolve_output_dir(props.output_dir)
     name = bpy.path.clean_name(props.output_name) or "baked"
-    os.makedirs(directory, exist_ok=True)
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(f"cannot write to output folder '{directory}' ({exc.strerror}); choose another Output folder") from exc
     formats = [f for f, on in (("glb", props.export_glb), ("obj", props.export_obj), ("bkd", props.export_bkd)) if on]
     rgba = None
     if props.view_transform == "SCENE":

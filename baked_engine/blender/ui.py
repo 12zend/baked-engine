@@ -83,6 +83,10 @@ class BAKED_ENGINE_PT_output(Panel):
         lay.use_property_split = True
         lay.use_property_decorate = False
         lay.prop(p, "output_dir")
+        if p.output_dir.startswith("//") and not bpy.data.filepath:
+            from .result import resolve_output_dir
+
+            lay.label(text=f"Unsaved file: writes to {resolve_output_dir(p.output_dir)}", icon="INFO")
         lay.prop(p, "output_name")
         col = lay.column(heading="Formats", align=True)
         col.prop(p, "export_glb")
