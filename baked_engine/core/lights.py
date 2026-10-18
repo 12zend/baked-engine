@@ -2,7 +2,7 @@
 
 Units follow Cycles: point/spot power P gives intensity P / (4 pi) W/sr; sun
 strength is irradiance in W/m^2; area lights of power P emit radiance
-P / (4 A) from their -Z side.
+P / (pi A) from their -Z side.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def sample_light(light: Light, P, u1, u2):
         d = np.linalg.norm(to_q, axis=1)
         wi = to_q / np.maximum(d, 1e-12)[:, None]
         cos_l = -(wi @ nl)
-        L = light.power / (4 * max(area, 1e-12))
+        L = light.power / (np.pi * max(area, 1e-12))
         g = np.where(cos_l > 0, cos_l * area / np.maximum(d * d, 1e-12), 0.0)
         Li = col[None, :] * (L * g)[:, None]
         return LightSample(wi, d, Li, np.zeros(k), True)

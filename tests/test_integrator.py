@@ -83,7 +83,7 @@ def test_area_light_small_and_far():
     P = np.array([[0.0, 0, 0]])
     N = np.array([[0.0, 0, 1]])
     mean, _, _ = pt.bake(1, 16, lambda s, i: (P, N, N))
-    assert mean[0, 0] == pytest.approx(50 / (4 * 9) / np.pi, rel=1e-3)
+    assert mean[0, 0] == pytest.approx(50 / (np.pi * 9) / np.pi, rel=1e-3)
 
 
 def test_occlusion_by_roof():

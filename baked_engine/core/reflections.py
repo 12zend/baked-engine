@@ -488,7 +488,7 @@ class LightGlints:
                     su, sv = light.size
                     area = su * sv * (np.pi / 4 if light.shape in ("DISK", "ELLIPSE") else 1.0)
                     cos_l = np.maximum(-(s @ nl), 0)
-                    E = light.power / (4 * max(area, 1e-12)) * area * cos_l / np.maximum(dist * dist, 1e-12)
+                    E = light.power / (np.pi * max(area, 1e-12)) * area * cos_l / np.maximum(dist * dist, 1e-12)
                     ang = np.sqrt(area / np.pi) / np.maximum(dist, 1e-12)
                 else:
                     E = light.power / (4 * np.pi) / np.maximum(dist * dist, 1e-12)
