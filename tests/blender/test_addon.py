@@ -82,6 +82,25 @@ def main():
         px = np.empty(img.size[0] * img.size[1] * 4, dtype=np.float32)
         img.pixels.foreach_get(px)
         check(np.isfinite(px).all() and px.reshape(-1, 4)[:, :3].mean() > 0.01, f"texture has content ({backend}) mean={px.reshape(-1,4)[:, :3].mean():.3f}")
+        # exporters that read the Principled BSDF's Base Color must find the baked texture in display colours
+        mat = obj.active_material
+        bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        link = bsdf.inputs["Base Color"].links[0] if bsdf is not None and bsdf.inputs["Base Color"].is_linked else None
+        dimg = link.from_node.image if link is not None and link.from_node.type == "TEX_IMAGE" else None
+        check(dimg is not None and not dimg.is_float, f"Principled Base Color links an 8-bit display texture ({backend})")
+        if dimg is not None:
+            w, h = dimg.size
+            dpx = np.empty(w * h * 4, dtype=np.float32)
+            dimg.pixels.foreach_get(dpx)
+            dpx = np.round(dpx.reshape(h, w, 4) * 255)
+            png = bpy.data.images.load(os.path.join(out, f"{p.output_name}.png"), check_existing=False)
+            ppx = np.empty(w * h * 4, dtype=np.float32)
+            png.pixels.foreach_get(ppx)
+            bpy.data.images.remove(png)
+            ppx = np.round(ppx.reshape(h, w, 4) * 255)
+            check(np.abs(dpx - ppx).max() <= 1, f"export texture equals {p.output_name}.png ({backend}) max diff={np.abs(dpx - ppx).max():.0f}")
+        surface = mat.node_tree.nodes["Material Output"].inputs["Surface"].links[0].from_node
+        check(surface.type == "MIX_SHADER", f"preview surface stays unlit ({backend})")
 
 
 try:

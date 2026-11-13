@@ -10,7 +10,7 @@ from bpy.types import Operator
 from ..core.pipeline import bake as run_bake
 from .cycles_backend import CyclesBackend
 from .extract import extract_scene
-from .result import create_result_object, export_files
+from .result import add_export_shader, create_result_object, display_image, display_rgba, export_files
 from .world_capture import capture_world
 
 
@@ -28,16 +28,21 @@ def _prepare(context):
 def _finish(op, context, props, res, info, source_objects):
     name = bpy.path.clean_name(props.output_name) or "baked"
     img = None
+    rgba = None
+    exporting = props.export_glb or props.export_obj or props.export_bkd or props.export_hdr
     if props.create_object:
         obj, img = create_result_object(context, res, name)
+        # display colours (same as name.png) for exporters that read the Principled BSDF's Base Color
+        rgba = display_rgba(context, res, props, img)
+        add_export_shader(obj.active_material, display_image(name, rgba))
         if props.hide_sources:
             for o in source_objects:
                 o.hide_set(True)
                 o.hide_render = True
                 o["baked_engine_hidden"] = True
     paths = {}
-    if props.export_glb or props.export_obj or props.export_bkd or props.export_hdr:
-        paths = export_files(context, res, props, img)
+    if exporting:
+        paths = export_files(context, res, props, img, rgba)
     st = res.stats
     msg = (
         f"Baked {st['triangles']} triangles ({st['triangles_mirrored']} mirrored) into "

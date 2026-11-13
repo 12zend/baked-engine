@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 import bpy
 import numpy as np
@@ -26,7 +27,61 @@ def result_image(name, res):
     return img
 
 
-def create_result_object(context, res, name):
+def display_image(name, rgba):
+    """8-bit sRGB image holding the display colours (the same pixels as ``name.png``).
+
+    ``rgba`` is (H, W, 4) uint8 with row 0 at the bottom, like Blender's pixel order. Kept as a byte
+    image so that ``Image.pixels`` returns exactly these values to exporters.
+    """
+    h, w = rgba.shape[:2]
+    iname = f"{name}_display"
+    img = bpy.data.images.get(iname)
+    if img is not None and (img.size[0] != w or img.size[1] != h or img.is_float):
+        bpy.data.images.remove(img)
+        img = None
+    if img is None:
+        img = bpy.data.images.new(iname, w, h, alpha=True, float_buffer=False)
+    try:
+        img.colorspace_settings.name = "sRGB"
+    except TypeError:
+        pass
+    img.pixels.foreach_set((np.ascontiguousarray(rgba, dtype=np.float32) / 255.0).reshape(-1))
+    img.update()
+    img.pack()
+    return img
+
+
+def add_export_shader(mat, img):
+    """Add a Principled BSDF whose Base Color is the display texture.
+
+    The preview surface stays the unlit Emission/Transparent mix (driven by the linear HDR image).
+    This extra node is not connected to the output; it only tells exporters that read the Principled
+    BSDF's Base Color (glTF, custom .txt exporters, ...) which texture and colours the mesh has.
+    """
+    nt_ = mat.node_tree
+    for n in [n for n in nt_.nodes if n.get("baked_engine_export")]:
+        nt_.nodes.remove(n)
+    tex = nt_.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    tex.interpolation = "Linear"
+    tex.label = "Display colours (for exporters)"
+    tex["baked_engine_export"] = True
+    bsdf = nt_.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.label = "Export: Base Color = baked texture"
+    bsdf["baked_engine_export"] = True
+    bsdf.inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)   # texture x white
+    nt_.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt_.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+    for key, val in (("Roughness", 1.0), ("Metallic", 0.0), ("Specular IOR Level", 0.0), ("Specular", 0.0), ("Emission Strength", 0.0)):
+        sock = bsdf.inputs.get(key)
+        if sock is not None and not sock.is_linked:
+            sock.default_value = val
+    tex.location = (-500, -350)
+    bsdf.location = (-200, -350)
+    return bsdf
+
+
+def create_result_object(context, res, name, rgba=None):
     """Mesh with one UV map and one unlit material showing the baked texture."""
     img = result_image(name, res)
     old = bpy.data.objects.get(name)
@@ -78,6 +133,8 @@ def create_result_object(context, res, name):
             mat.blend_method = "CLIP"
         except TypeError:
             pass
+    if rgba is not None:
+        add_export_shader(mat, display_image(name, rgba))
     me.materials.append(mat)
     obj = bpy.data.objects.new(name, me)
     coll = bpy.data.collections.get(COLLECTION)
@@ -92,9 +149,8 @@ def create_result_object(context, res, name):
     return obj, img
 
 
-def _scene_encoded_rgba(context, img, directory, name):
+def _scene_encoded_rgba(context, img, path):
     """Encode through the scene's view transform by saving with Blender's colour management."""
-    path = os.path.join(directory, f"{name}.png")
     sc = context.scene
     fmt = sc.render.image_settings
     old = (fmt.file_format, fmt.color_mode, fmt.color_depth)
@@ -136,7 +192,22 @@ def resolve_output_dir(path):
     return os.path.normpath(out)
 
 
-def export_files(context, res, props, img=None):
+def display_rgba(context, res, props, img=None):
+    """Display-referred RGBA8 (row 0 = bottom): the colours written to ``name.png``."""
+    if props.view_transform != "SCENE":
+        return res.encoded(props.view_transform, props.exposure)
+    tmp = None
+    if img is None:
+        img = tmp = result_image("BE_display_tmp", res)
+    try:
+        with tempfile.TemporaryDirectory(prefix="baked_engine_") as d:
+            return _scene_encoded_rgba(context, img, os.path.join(d, "display.png"))
+    finally:
+        if tmp is not None:
+            bpy.data.images.remove(tmp)
+
+
+def export_files(context, res, props, img=None, rgba=None):
     directory = resolve_output_dir(props.output_dir)
     name = bpy.path.clean_name(props.output_name) or "baked"
     try:
@@ -144,11 +215,8 @@ def export_files(context, res, props, img=None):
     except OSError as exc:
         raise RuntimeError(f"cannot write to output folder '{directory}' ({exc.strerror}); choose another Output folder") from exc
     formats = [f for f, on in (("glb", props.export_glb), ("obj", props.export_obj), ("bkd", props.export_bkd)) if on]
-    rgba = None
-    if props.view_transform == "SCENE":
-        if img is None:
-            img = result_image(name + "_tmp", res)
-        rgba = _scene_encoded_rgba(context, img, directory, name)
+    if rgba is None and props.view_transform == "SCENE":
+        rgba = display_rgba(context, res, props, img)
     return export_result(
         res,
         directory,
