@@ -24,7 +24,9 @@ scripts/build_extension.sh /Applications/Blender.app/Contents/MacOS/Blender
 2. 必要なら反射させたいオブジェクトの **Properties > Object > Baked Engine** で反射モードを設定します（既定の Auto で、平らで光沢のある面は自動的にジオメトリ反射になります）。
 3. **Bake** を押します。進捗はパネルに表示され、Esc で中断できます。
 
-結果は `Baked Engine` コレクションにプレビューオブジェクト（UV 1つ + 無照明マテリアル1つ）として作られ、出力フォルダに書き出されます。出力フォルダの既定値 `//baked/` は .blend ファイルからの相対パスです。ファイルが未保存の場合は `~/BakedEngine/baked/` に書き出されます。
+結果は `Baked Engine` コレクションにプレビューオブジェクト（UV 1つ + 無照明マテリアル1つ）として作られ、出力フォルダに書き出されます。
+
+プレビューのマテリアルは、表面としては無照明（Emission）ですが、出力とは別に **Principled BSDF（Base Color = ベイクテクスチャ）** も持っています。この Base Color には `name.png` と同じ表示用の色（8bit sRGB の画像 `name_display`）がつながっているので、Principled BSDF の Base Color からテクスチャを読むエクスポーター（glTF や独自形式の書き出しスクリプトなど）でプレビューオブジェクトをそのまま書き出せます。出力フォルダの既定値 `//baked/` は .blend ファイルからの相対パスです。ファイルが未保存の場合は `~/BakedEngine/baked/` に書き出されます。
 
 ### コマンドライン
 
